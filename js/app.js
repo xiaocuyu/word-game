@@ -29,6 +29,8 @@ const Session = {
   /* 本轮已结算过星星的 wordId，防止同关重复刷星 */
   starred: {},
   keyHandler: null,
+  /* 战斗：连对连错计数 */
+  combo: 0, maxCombo: 0,
 };
 
 function setTab(name) {
@@ -110,6 +112,7 @@ function startUnit(unit) {
   Session.starred = {};
   Session.baseLen = 0;
   Session.baseWords = [];
+  Session.monsterHp = {};
   StepScreen();
 }
 
@@ -126,6 +129,7 @@ function startChallenge() {
   Session.wrongQueue = [];
   Session.cleared = {};
   Session.starred = {};
+  Session.monsterHp = {};
   StepScreen();
 }
 
@@ -226,11 +230,17 @@ function QuizScreen(step) {
       </div>
       <div class="progress"><i style="width:${pct}%"></i></div>
 
+      <div class="battle-strip">
+        <span>⚔️ ${esc(step.name)}</span>
+        <span class="round">第 ${Session.wordIdx + 1} 个</span>
+        <span class="combo" id="combo"></span>
+      </div>
+
+      <div id="arena-holder"></div>
+
       <div class="card stage">
-        <div class="count">✍️ ${step.name}</div>
-        <div class="bigemo">${word.emo}</div>
-        <div class="zh">${esc(word.zh)}</div>
-        <div class="hint-row" style="margin:6px 0 0">
+        <div class="count">把<b>「${esc(word.zh)}」</b>拼出来，打它！</div>
+        <div class="hint-row" style="margin:4px 0 8px">
           <button class="speak-btn" id="btn-say" style="margin:0">🔊 听发音</button>
         </div>
 
@@ -239,7 +249,7 @@ function QuizScreen(step) {
         <div class="hint-row">
           <button class="btn small ghost" id="btn-hint">💡 要提示</button>
           <button class="btn small ghost" id="btn-del">⌫ 删一个</button>
-          <button class="btn small green" id="btn-ok">✅ 提交</button>
+          <button class="btn small green" id="btn-ok">⚔️ 出招</button>
         </div>
 
         <div class="keyboard" id="kb"></div>
@@ -251,8 +261,29 @@ function QuizScreen(step) {
   const spellBox = card.querySelector('#spell');
   const fb = card.querySelector('#feedback');
   const kb = card.querySelector('#kb');
+  const comboEl = card.querySelector('#combo');
   /* 记录哪些位置是提示给的（用于金色高亮） */
   const hintedIdx = new Set();
+
+  /* 怪物血量 = ceil(词长/2)，最短 2。
+     配「伤害打一半 + 血量≤2 直接斩杀」的规则，实测任何词最长 3 招必死，
+     与一次关卡内每词 3 次检索的节奏吻合 —— 孩子一定看得见怪物倒下。
+     同一单词跨 show/quiz/mix/flash 四阶段续血，按 wordId 记录。 */
+  const MONSTERS = ['👾', '🐙', '🦖', '🐲', '👻', '🦂', '🧟', '🦑'];
+  const monsterMax = Math.max(2, Math.ceil(target.length / 2));
+  if (!Session.monsterHp) Session.monsterHp = {};
+  const prevHp = Session.monsterHp[word.id];
+  /* 上次已被打死的词 -> 满血复活；还有剩血 -> 保持残血续战 */
+  const startHp = prevHp > 0 ? prevHp : monsterMax;
+
+  Battle.mount(card.querySelector('#arena-holder'), {
+    monsterEmo: MONSTERS[Math.floor(Math.random() * MONSTERS.length)],
+    monsterName: esc(word.zh),
+    monsterMax,
+    playerEmo: petStage().emo,
+    playerName: petStage().name,
+    initialHp: startHp,
+  });
 
   function renderSpell() {
     spellBox.innerHTML = '';
@@ -325,7 +356,7 @@ function QuizScreen(step) {
   function submit() {
     if (Session.locked) return;
     if (Session.answer.length < target.length) {
-      fb.innerHTML = tip(`还差 <b>${target.length - Session.answer.length}</b> 个字母，补满再提交！`);
+      fb.innerHTML = tip(`还差 <b>${target.length - Session.answer.length}</b> 个字母，补满再出招！`);
       return;
     }
     const ok = Session.answer === target;
@@ -340,8 +371,23 @@ function QuizScreen(step) {
       else Session.wrongQueue.push(word);
     }
 
+    let monsterDown = false;
+
     if (ok) {
       Audio.correct();
+      /* 连对统计 */
+      Session.combo += 1;
+      Session.maxCombo = Math.max(Session.maxCombo, Session.combo);
+      if (comboEl) comboEl.textContent = Session.combo >= 2 ? `🔥 ${Session.combo} 连对` : '🔥 连对开始！';
+
+      /* 伤害模型：打掉当前血量的一半；血量≤2 时直接斩杀。
+         纯对半衰减打不掉奇数尾巴，斩杀线保证 3 招内见底。 */
+      const cur = Battle.state().monsterHp;
+      const dmg = cur <= 2 ? cur : Math.max(1, Math.round(cur / 2));
+      monsterDown = Battle.hitMonster(dmg, hintFree);
+
+      /* 记录该词剩余血量：同一单词换阶段再来时怪物是残血状态 */
+      Session.monsterHp[word.id] = Battle.state().monsterHp;
       /* 星星：本轮首次拼对该词才发星，重复拼对不再刷 */
       if (!Session.starred[word.id]) {
         Session.starred[word.id] = true;
@@ -350,32 +396,41 @@ function QuizScreen(step) {
         s.totalStars = (s.totalStars || 0) + gain;
         s.totalRight += 1;
         save();
-        if (hintFree) fb.innerHTML = `<div class="verdict ok">🎉 全对！不用提示就写出来了，<b>+2 星</b></div>`;
-        else fb.innerHTML = `<div class="verdict ok">🎉 正确！用了提示也算掌握 <b>+1 星</b></div>`;
+        fb.innerHTML = `<div class="verdict ok">${monsterDown ? '💥 击败它了！' : '⚔️ 命中！'}${hintFree ? '不用提示就写出来了，<b>+2 星</b>' : '用了提示也算掌握 <b>+1 星</b>'}</div>`;
       } else {
-        fb.innerHTML = `<div class="verdict ok">🎉 又对了！越练越牢</div>`;
+        fb.innerHTML = `<div class="verdict ok">${monsterDown ? '💥 击败它了！越练越牢' : '⚔️ 又命中了！它快撑不住了'}</div>`;
       }
     } else {
       Audio.wrong();
+      Session.combo = 0;
+      if (comboEl) comboEl.textContent = '';
       Session.wrongInWord += 1;
+
+      /* 怪物反击：扣血量随错次递增 */
+      const dmg = 15 + Session.wrongInWord * 10;
+      fb.innerHTML = `<div class="verdict no">👊 被打中了！正确写法：<span class="answer">${target.toUpperCase()}</span></div>`;
+
       if (Session.challenge) {
         Session.hearts -= 1;
-        card.querySelector('#hearts').textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
+        const heartsEl = card.querySelector('#hearts');
+        if (heartsEl) heartsEl.textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
+        Battle.hitPlayer(dmg, () => ChallengeLoseScreen());
+      } else {
+        Battle.hitPlayer(dmg, null);
       }
-      fb.innerHTML = `<div class="verdict no">差一点点～ 正确写法：<span class="answer">${target.toUpperCase()}</span></div>`;
     }
 
-    /* 挑战：三颗心用尽 -> 失败；12 词全部攻克 -> 通关 */
+    /* 失败/通关判定 */
     if (Session.challenge) {
       const cleared = Object.keys(Session.cleared).length;
-      const heartsEl = card.querySelector('#hearts');
-      if (heartsEl) heartsEl.textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
-      if (Session.hearts <= 0) { lock(true); setTimeout(ChallengeLoseScreen, 1200); return; }
+      if (Session.hearts <= 0) { lock(true); return; }
       if (cleared >= Session.unit.words.length) { lock(true); setTimeout(ChallengeWinScreen, 900); return; }
     }
 
     lock(true);
-    setTimeout(advance, ok ? 900 : 2200);
+    /* 答错时多停一会看反馈；怪物已被击败也要展示一下再切下一个 */
+    const wait = !ok ? 2200 : (monsterDown ? 1100 : 900);
+    setTimeout(() => { if (Session.hearts > 0) advance(); }, wait);
   }
 
   function lock(on) {
@@ -468,6 +523,7 @@ function FinishScreen() {
           <div class="mini"><b>${perfect}</b><span>独立拼对</span></div>
           <div class="mini"><b>${okCnt - perfect}</b><span>提示后拼对</span></div>
           <div class="mini"><b>${wrong}</b><span>写错</span></div>
+          <div class="mini"><b>${Session.maxCombo}</b><span>最高连对</span></div>
         </div>
         ${grew.after > grew.before ? `<p class="sub" style="text-align:center;color:var(--green);font-weight:800">🎊 小单词兽长大了！现在是「${petStage().name}」${petStage().emo}</p>` : ''}
         <button class="btn block green" id="btn-again">🔁 再练一轮</button>

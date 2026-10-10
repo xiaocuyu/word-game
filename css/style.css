@@ -244,3 +244,172 @@ body {
   .stage .bigemo { font-size: 68px; }
   .stage .zh { font-size: 27px; }
 }
+
+/* ============================================================
+ * 战斗舞台
+ * ============================================================ */
+
+.arena {
+  position: relative;
+  height: 230px;
+  border-radius: 20px;
+  overflow: hidden;
+  margin-bottom: 4px;
+  background: linear-gradient(180deg, #bfe4ff 0%, #e7f4ff 55%, #d7ecc8 55%, #c4e3b0 100%);
+  border: 3px solid #cfe6f5;
+}
+.arena-sky {
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(circle at 20% 18%, rgba(255,255,255,.75) 0 22%, transparent 23%),
+    radial-gradient(circle at 78% 12%, rgba(255,255,255,.6) 0 16%, transparent 17%),
+    radial-gradient(circle at 88% 34%, rgba(255,255,255,.5) 0 12%, transparent 13%);
+  pointer-events: none;
+}
+.arena-floor {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 46%;
+  background:
+    repeating-linear-gradient(90deg, rgba(0,0,0,.03) 0 8px, transparent 8px 18px),
+    linear-gradient(180deg, transparent, rgba(0,0,0,.06));
+  pointer-events: none;
+}
+
+.fighter {
+  position: absolute; bottom: 12px;
+  width: 40%; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+}
+.fighter.player { left: 4%; }
+.fighter.monster { right: 4%; }
+.f-sprite {
+  font-size: 76px; line-height: 1;
+  filter: drop-shadow(0 6px 6px rgba(0,0,0,.18));
+  transition: transform .18s ease;
+}
+.fighter .f-tag {
+  font-size: 14px; font-weight: 800; color: #33312c;
+  background: rgba(255,255,255,.85);
+  padding: 3px 11px; border-radius: 999px;
+  border: 2px solid rgba(0,0,0,.06);
+}
+
+.hpbar {
+  width: 118px; height: 15px; border-radius: 999px;
+  background: rgba(0,0,0,.14);
+  border: 2px solid rgba(255,255,255,.75);
+  overflow: hidden;
+}
+.hpbar > i {
+  display: block; height: 100%;
+  background: linear-gradient(90deg, #54d68a, #2e9e5b);
+  border-radius: 999px;
+  transition: width .35s cubic-bezier(.2,.8,.3,1);
+}
+.hpbar.monster > i { background: linear-gradient(90deg, #ff9a6b, #e2553d); }
+.hpbar.low > i { background: linear-gradient(90deg, #ffd166, #e2553d); animation: hpblink .8s infinite; }
+@keyframes hpblink { 0%,100% { opacity: 1; } 50% { opacity: .55; } }
+
+.hpnum {
+  font-size: 13px; font-weight: 800; color: #fff;
+  background: rgba(0,0,0,.4); padding: 1px 9px; border-radius: 999px;
+}
+
+.arena-mid {
+  position: absolute; left: 50%; top: 34%;
+  transform: translate(-50%, -50%);
+}
+.arena-mid .vs {
+  font-size: 26px; font-weight: 800; color: #fff;
+  background: rgba(0,0,0,.28);
+  width: 60px; height: 60px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  border: 3px solid rgba(255,255,255,.6);
+}
+
+/* 动作动画 */
+.fighter.lunge-r { animation: lungeR .42s ease; }
+.fighter.lunge-l { animation: lungeL .42s ease; }
+@keyframes lungeR {
+  0% { transform: translateX(0); }
+  35% { transform: translateX(58px) scale(1.06); }
+  100% { transform: translateX(0); }
+}
+@keyframes lungeL {
+  0% { transform: translateX(0); }
+  35% { transform: translateX(-58px) scale(1.06); }
+  100% { transform: translateX(0); }
+}
+.fighter.hurt { animation: hurt .46s ease; }
+@keyframes hurt {
+  0%,100% { transform: translate(0,0); }
+  15% { transform: translate(-8px, 2px); filter: brightness(1.7) saturate(.4); }
+  30% { transform: translate(7px, -2px); }
+  45% { transform: translate(-6px, 1px); }
+  60% { transform: translate(5px, 0); }
+  80% { transform: translate(-2px, 0); }
+}
+.fighter.die { animation: die .7s ease forwards; }
+@keyframes die {
+  0% { transform: scale(1) rotate(0); opacity: 1; }
+  40% { transform: scale(1.15) rotate(-6deg); opacity: .9; }
+  100% { transform: scale(.6) rotate(18deg) translateY(24px); opacity: 0; }
+}
+.fighter.enter { animation: enter .42s ease; }
+@keyframes enter {
+  from { transform: scale(.3) translateY(-30px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+.arena.shake { animation: shakeArena .5s ease; }
+@keyframes shakeArena {
+  0%,100% { transform: translate(0,0); }
+  10% { transform: translate(-7px, 3px); }
+  25% { transform: translate(6px, -4px); }
+  40% { transform: translate(-5px, 2px); }
+  55% { transform: translate(4px, -2px); }
+  70% { transform: translate(-3px, 1px); }
+  85% { transform: translate(2px, 0); }
+}
+
+/* 伤害飘字 */
+.fx-layer { position: absolute; inset: 0; pointer-events: none; }
+.dmg {
+  position: absolute; bottom: 42%; left: 50%;
+  font-size: 26px; font-weight: 800;
+  color: #d64545;
+  text-shadow: 0 2px 0 #fff, 0 0 10px rgba(255,255,255,.9);
+  animation: floatUp .9s ease-out forwards;
+  white-space: nowrap;
+}
+.dmg-good { color: #1f8a4c; }
+.dmg-bad { color: #d64545; }
+.dmg.dmg-good { left: 62%; }
+.dmg.dmg-bad { left: 32%; }
+@keyframes floatUp {
+  0% { transform: translateY(10px) scale(.6); opacity: 0; }
+  25% { transform: translateY(-6px) scale(1.25); opacity: 1; }
+  100% { transform: translateY(-56px) scale(1); opacity: 0; }
+}
+
+/* 战斗标题条 */
+.battle-strip {
+  display: flex; align-items: center; gap: 10px;
+  background: linear-gradient(90deg, #3b4a6b, #55658c);
+  color: #fff; border-radius: 14px;
+  padding: 9px 13px; margin-bottom: 10px;
+  font-weight: 800; font-size: 15px;
+}
+.battle-strip .round {
+  background: rgba(255,255,255,.2);
+  padding: 4px 11px; border-radius: 999px; font-size: 13px;
+}
+.battle-strip .combo {
+  margin-left: auto;
+  color: #ffd166;
+}
+
+@media (max-width: 480px) {
+  .arena { height: 200px; }
+  .f-sprite { font-size: 62px; }
+  .hpbar { width: 96px; }
+  .arena-mid .vs { width: 50px; height: 50px; font-size: 21px; }
+}

@@ -6,8 +6,8 @@
 
 const SRS = (() => {
   const BOXES = [
-    { name: '新词', ivlMs: 0, label: '现在' },
-    { name: '初识', ivlMs: 10 * 60 * 1000, label: '10分钟后' },
+    { name: '新词', ivlMs: 10 * 60 * 1000, label: '10分钟后' },
+    { name: '初识', ivlMs: 60 * 60 * 1000, label: '1小时后' },
     { name: '眼熟', ivlMs: 24 * 60 * 60 * 1000, label: '1天后' },
     { name: '记得', ivlMs: 3 * 24 * 60 * 60 * 1000, label: '3天后' },
     { name: '牢记', ivlMs: 7 * 24 * 60 * 60 * 1000, label: '7天后' },
