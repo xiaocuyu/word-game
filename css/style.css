@@ -115,6 +115,23 @@ body {
 .stage .zh { font-size: 32px; font-weight: 800; margin: 4px 0 2px; }
 .stage .count { color: var(--muted); font-size: 15px; }
 
+/* 打怪战场（我的世界像素风） */
+.battle-wrap {
+  margin: 0 0 10px;
+  border-radius: 14px;
+  overflow: hidden;
+  border: 3px solid #2c2a33;
+  box-shadow: 0 4px 0 rgba(0, 0, 0, .16);
+  background: #79b8ff;
+}
+.battle-wrap canvas {
+  display: block;
+  width: 100%;
+  height: auto;
+  image-rendering: -webkit-optimize-contrast;
+  image-rendering: pixelated;
+}
+
 .speak-btn {
   border: 3px dashed var(--line); background: #fffdf9; border-radius: 16px;
   padding: 10px 18px; font-size: 16px; font-weight: 700; color: var(--muted);

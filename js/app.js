@@ -17,7 +17,11 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function clear() { $app.innerHTML = ''; }
+function clear() {
+  /* 拼写界面的打怪战场随屏幕一起卸载，避免 rAF 空转 */
+  if (Session.battle) { Session.battle.destroy(); Session.battle = null; }
+  $app.innerHTML = '';
+}
 
 /* 本次游玩会话 */
 const Session = {
@@ -28,6 +32,10 @@ const Session = {
   cleared: {},
   /* 本轮已结算过星星的 wordId，防止同关重复刷星 */
   starred: {},
+  /* 本轮打倒的怪物数（打怪联动） */
+  kills: 0,
+  /* 当前拼写界面的战斗实例 */
+  battle: null,
   keyHandler: null,
 };
 
@@ -108,6 +116,7 @@ function startUnit(unit) {
   Session.results = [];
   Session.challenge = false;
   Session.starred = {};
+  Session.kills = 0;
   Session.baseLen = 0;
   Session.baseWords = [];
   StepScreen();
@@ -126,6 +135,7 @@ function startChallenge() {
   Session.wrongQueue = [];
   Session.cleared = {};
   Session.starred = {};
+  Session.kills = 0;
   StepScreen();
 }
 
@@ -227,7 +237,8 @@ function QuizScreen(step) {
       <div class="progress"><i style="width:${pct}%"></i></div>
 
       <div class="card stage">
-        <div class="count">✍️ ${step.name}</div>
+        <div class="battle-wrap" id="battle"></div>
+        <div class="count">✍️ ${step.name}${Session.kills ? ` · 已打倒 <b>${Session.kills}</b> 只怪` : ''}</div>
         <div class="bigemo">${word.emo}</div>
         <div class="zh">${esc(word.zh)}</div>
         <div class="hint-row" style="margin:6px 0 0">
@@ -251,8 +262,21 @@ function QuizScreen(step) {
   const spellBox = card.querySelector('#spell');
   const fb = card.querySelector('#feedback');
   const kb = card.querySelector('#kb');
+  /* 顶部像素战场：白天打怪，迷雾试炼是夜晚 */
+  const battle = BATTLE.mount(card.querySelector('#battle'), {
+    theme: Session.challenge ? 'night' : 'day',
+    challenge: !!Session.challenge,
+    hearts: Session.hearts,
+  });
+  Session.battle = battle;
+  battle.spawn(word);
   /* 记录哪些位置是提示给的（用于金色高亮） */
   const hintedIdx = new Set();
+
+  function refreshCount() {
+    const cnt = card.querySelector('.count');
+    if (cnt) cnt.innerHTML = `✍️ ${step.name}${Session.kills ? ` · 已打倒 <b>${Session.kills}</b> 只怪` : ''}`;
+  }
 
   function renderSpell() {
     spellBox.innerHTML = '';
@@ -283,6 +307,7 @@ function QuizScreen(step) {
     if (Session.answer.length < target.length) {
       Session.answer += ch;
       renderSpell();
+      battle.hit();
     }
   }
 
@@ -290,6 +315,7 @@ function QuizScreen(step) {
     if (Session.locked) return;
     Session.answer = Session.answer.slice(0, -1);
     renderSpell();
+    battle.heal();
   }
 
   function giveHint() {
@@ -306,7 +332,10 @@ function QuizScreen(step) {
       else if (hintCh && hintCh !== '•') { merged += hintCh.toLowerCase(); hintedIdx.add(i); }
       else merged += '';
     }
+    /* 提示直接填进去的每个字母也各砍一刀 */
+    const added = Math.max(0, merged.length - Session.answer.length);
     Session.answer = merged;
+    for (let i = 0; i < added; i++) battle.hit();
 
     if (Session.hintLevel === 1) {
       fb.innerHTML = tip(`首字母是 <b>${target[0].toUpperCase()}</b>，后面的自己想～`);
@@ -342,6 +371,9 @@ function QuizScreen(step) {
 
     if (ok) {
       Audio.correct();
+      Session.kills += 1;
+      battle.defeat();
+      refreshCount();
       /* 星星：本轮首次拼对该词才发星，重复拼对不再刷 */
       if (!Session.starred[word.id]) {
         Session.starred[word.id] = true;
@@ -361,6 +393,8 @@ function QuizScreen(step) {
       if (Session.challenge) {
         Session.hearts -= 1;
         card.querySelector('#hearts').textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
+        battle.hurt();
+        battle.setHearts(Session.hearts);
       }
       fb.innerHTML = `<div class="verdict no">差一点点～ 正确写法：<span class="answer">${target.toUpperCase()}</span></div>`;
     }
