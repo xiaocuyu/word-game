@@ -406,11 +406,11 @@ function QuizScreen(step) {
       }
     }
 
-    /* 失败/通关判定 */
+    /* 失败/通关判定：延迟出结算，期间切走了（inLevel 为假）就不再弹 */
     if (Session.challenge) {
       const cleared = Object.keys(Session.cleared).length;
-      if (Session.hearts <= 0) { lock(true); return; }
-      if (cleared >= Session.unit.words.length) { lock(true); setTimeout(ChallengeWinScreen, 900); return; }
+      if (Session.hearts <= 0) { lock(true); setTimeout(() => { if (inLevel()) ChallengeLoseScreen(); }, 1200); return; }
+      if (cleared >= Session.unit.words.length) { lock(true); setTimeout(() => { if (inLevel()) ChallengeWinScreen(); }, 900); return; }
     }
 
     lock(true);
@@ -428,6 +428,7 @@ function QuizScreen(step) {
   }
 
   function advance() {
+    if (!inLevel()) return; /* 已退出/切走：不再推进，避免空 steps 掉进结算页 */
     /* 挑战：失败/通关已在 submit 内判定；这里推进错词重练队列。
        不修改 step.words，只把错词插到 session 队列中，保持进度条口径稳定。 */
     if (Session.challenge) {
@@ -452,7 +453,8 @@ function QuizScreen(step) {
   card.querySelector('#btn-ok').addEventListener('click', submit);
   card.querySelector('#btn-quit').addEventListener('click', quitConfirm);
 
-  /* 物理键盘 */
+  /* 物理键盘：换题/换屏先摘掉旧监听，否则每题累积一个（一次按键被多题重复消费） */
+  if (Session.keyHandler) document.removeEventListener('keydown', Session.keyHandler);
   Session.keyHandler = (e) => {
     if (e.key === 'Enter') { e.preventDefault(); submit(); return; }
     if (e.key === 'Backspace') { e.preventDefault(); doDel(); return; }
@@ -464,7 +466,8 @@ function QuizScreen(step) {
 }
 
 function quitConfirm() {
-  if (confirm('现在退出？这一关的进度会中断（已记住的词还是会记住）。')) go('home');
+  /* 与底部 tab 走同一条离开路径：由 go() 统一弹确认、结束本关会话 */
+  go('home');
 }
 
 /* ================= 结算 ================= */
@@ -540,7 +543,7 @@ function FinishScreen() {
 /* ================= 挑战：胜负画面 ================= */
 
 function ChallengeLoseScreen() {
-  document.removeEventListener('keydown', Session.keyHandler || (() => {}));
+  endLevel();
   clear();
   Audio.fail();
   const n = Session.results.filter((r) => r.ok).length;
@@ -570,7 +573,7 @@ function ChallengeLoseScreen() {
 }
 
 function ChallengeWinScreen() {
-  document.removeEventListener('keydown', Session.keyHandler || (() => {}));
+  endLevel();
   clear();
   Audio.win();
   const n = Session.results.filter((r) => r.ok).length;
@@ -716,11 +719,25 @@ function inLevel() {
   return Session.steps.length > 0 && Session.stepIdx < Session.steps.length;
 }
 
+/* 结束本关会话：清掉关卡状态与键盘监听，让任何 tab/退出都能真正切走 */
+function endLevel() {
+  if (Session.keyHandler) {
+    document.removeEventListener('keydown', Session.keyHandler);
+    Session.keyHandler = null;
+  }
+  Session.steps = [];
+  Session.stepIdx = 0;
+  Session.wordIdx = 0;
+  Session.baseLen = 0;
+  Session.baseWords = [];
+}
+
 function go(name) {
-  /* 关卡进行中时，学单词/试炼两个 tab 只切换选中态，不冲掉进度 */
-  if (inLevel() && (name === 'home' || name === 'challenge')) {
-    setTab(name);
-    return;
+  if (inLevel()) {
+    /* 关卡进行中切走会中断本关：学单词/试炼先确认，小伙伴/小镇直接切 */
+    if ((name === 'home' || name === 'challenge') &&
+        !confirm('现在退出？这一关的进度会中断（已记住的词还是会记住）。')) return;
+    endLevel();
   }
   const map = { home: HomeScreen, challenge: ChallengeScreen, pet: PetScreen, town: TownScreen };
   (map[name] || HomeScreen)();
