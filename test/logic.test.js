@@ -21,8 +21,10 @@ function makeNode() {
     get innerHTML() { return this._text; },
     set textContent(v) { this._text = String(v); },
     get textContent() { return this._text; },
-    appendChild(c) { this._children.push(c); return c; },
+    appendChild(c) { this._children.push(c); c.parentNode = this; return c; },
+    removeChild(c) { const i = this._children.indexOf(c); if (i >= 0) this._children.splice(i, 1); return c; },
     remove() {},
+    setAttribute() {},
     querySelector() { return makeNode(); },
     querySelectorAll() { return []; },
     offsetWidth: 0,
@@ -32,13 +34,26 @@ function makeNode() {
   return n;
 }
 
+/* canvas 的 2d 上下文：所有方法 noop，属性可写 */
+const noopCtx = new Proxy({}, {
+  get: (t, k) => { if (k in t) return t[k]; return () => {}; },
+  set: () => true,
+});
+
 const arenaEl = makeNode();
 arenaEl.querySelector = () => makeNode();
 
 const sandbox = {
   console, setTimeout, clearTimeout,
   document: {
-    createElement: makeNode,
+    createElement: (tag) => {
+      const node = makeNode();
+      if (tag === 'canvas') {
+        node.getContext = () => noopCtx;
+        node.parentNode = null;
+      }
+      return node;
+    },
     getElementById: () => makeNode(),
     querySelector: () => makeNode(),
     querySelectorAll: () => [],
@@ -58,6 +73,13 @@ const sandbox = {
   })(),
   Date, Math, JSON, parseInt, parseFloat, isNaN, Object, Array, String, Number, Boolean, Set, Map,
 };
+let rafSeq = 0; const rafMap = new Map();
+sandbox.requestAnimationFrame = (fn) => { const id = ++rafSeq; rafMap.set(id, fn); return id; };
+sandbox.cancelAnimationFrame = (id) => { rafMap.delete(id); };
+sandbox.getComputedStyle = () => ({});
+sandbox.location = { href: '', hash: '' };
+sandbox.confirm = () => false;
+sandbox.alert = () => {};
 sandbox.globalThis = sandbox;
 sandbox.window = sandbox;
 sandbox.self = sandbox;
@@ -93,39 +115,32 @@ truthy('id 就地写入', /^a1:/.test(ALL_WORDS[0].id));
 eq('拼写目标去空格(撇号)', spellingTarget("o'clock"), 'oclock');
 eq('拼写目标去空格(短语)', spellingTarget('green beans'), 'greenbeans');
 
-/* ================= Battle 状态机 ================= */
-console.log('\n--- Battle 状态机 ---');
-const b = Battle;
-b.mount($ARENA, { monsterEmo: 'x', monsterName: 'n', monsterMax: 10, playerEmo: 'p', playerName: 'pn' });
-eq('怪物初始血量', b.state().monsterHp, 10);
-eq('玩家初始血量', b.state().playerHp, 100);
+/* ================= Battle 挂载冒烟（canvas stub） =================
+ * 真实渲染行为由 test/ui.battle.cdp.js 在无头 Chrome 里验证。
+ * 这里只验证：mount 能建立、常用动作不会抛错、destroy 可停。 */
+console.log('\n--- Battle 挂载冒烟 ---');
+const babel = BATTLE;
+const api = babel.mount($ARENA, { theme: 'day', challenge: false, hearts: 3 });
+truthy('mount 返回 spawn', typeof api.spawn === 'function');
+truthy('mount 返回 hit', typeof api.hit === 'function');
+truthy('mount 返回 heal', typeof api.heal === 'function');
+truthy('mount 返回 defeat', typeof api.defeat === 'function');
+truthy('mount 返回 hurt', typeof api.hurt === 'function');
+truthy('mount 返回 setHearts', typeof api.setHearts === 'function');
+truthy('mount 返回 destroy', typeof api.destroy === 'function');
 
-let dead = b.hitMonster(4, false);
-eq('攻击扣 4 血', b.state().monsterHp, 6);
-eq('未击败返回 false', dead, false);
+let threw = [];
+['spawn', 'hit', 'heal', 'defeat', 'hurt'].forEach((m) => {
+  try { api[m].return || api[m](ALL_WORDS[0]); } catch (e) { threw.push(m + ':' + e.message); }
+});
+/* hit/heal/defeat/hurt 无参调用 */
+try { api.hit(); api.heal(); api.defeat(); api.hurt(); api.setHearts(2); } catch (e) { threw.push('bare:' + e.message); }
+eq('全部动作调用不抛错', threw.join('|').slice(0, 120), '');
+let derr = '';
+try { api.destroy(); } catch (e) { derr = e.message; }
+eq('destroy 不抛错', derr, '');
 
-// 魔数验证：出招伤害 = ceil(当前血量 * 0.4)，至少 1
-const appDmg = Math.max(1, Math.round(b.state().monsterHp * 0.4));
-eq('出招伤害公式(40%)', appDmg, 2);
-dead = b.hitMonster(6, true);
-eq('再次攻击击杀', dead, true);
-eq('怪物血量归零', b.state().monsterHp, 0);
-b.hitMonster(5, false);
-eq('已死后再打不掉血', b.state().monsterHp, 0);
-
-console.log('\n--- 玩家受击与死亡回调 ---');
-b.reset('x', 'n', 10);
-eq('reset 后怪满血', b.state().monsterHp, 10);
-let fired = 0;
-b.hitPlayer(60, () => fired++);
-eq('受击扣 60', b.state().playerHp, 40);
-eq('未死回调不触发', fired, 0);
-b.hitPlayer(100, () => fired++);
-eq('血量归零', b.state().playerHp, 0);
-setTimeout(() => {
-  eq('死亡回调触发', fired, 1);
-
-  /* ================= SRS 记忆调度 ================= */
+/* ================= SRS 记忆调度 ================= */
   console.log('\n--- SRS：渐变晋升与退步 ---');
   const w = ALL_WORDS[0];
   eq('初始 box=-1', SRS.rec(w.id).box, -1);
@@ -183,7 +198,6 @@ setTimeout(() => {
   eq('8 词牢记 -> 小宠', petStage().name, '小宠');
 
   done();
-}, 900);
 `;
 
 vm.runInNewContext(TEST, sandbox, { filename: 'logic.test' });

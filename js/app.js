@@ -17,7 +17,11 @@ function esc(s) {
   return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 }
 
-function clear() { $app.innerHTML = ''; }
+function clear() {
+  /* 拼写界面的打怪战场随屏幕一起卸载，避免 rAF 空转 */
+  if (Session.battle) { Session.battle.destroy(); Session.battle = null; }
+  $app.innerHTML = '';
+}
 
 /* 本次游玩会话 */
 const Session = {
@@ -28,9 +32,11 @@ const Session = {
   cleared: {},
   /* 本轮已结算过星星的 wordId，防止同关重复刷星 */
   starred: {},
+  /* 本轮打倒的怪物数（打怪联动） */
+  kills: 0,
+  /* 当前拼写界面的战斗实例（clear() 时销毁，防止 raf 泄漏） */
+  battle: null,
   keyHandler: null,
-  /* 战斗：连对连错计数 */
-  combo: 0, maxCombo: 0,
 };
 
 function setTab(name) {
@@ -110,6 +116,7 @@ function startUnit(unit) {
   Session.results = [];
   Session.challenge = false;
   Session.starred = {};
+  Session.kills = 0;
   Session.baseLen = 0;
   Session.baseWords = [];
   Session.monsterHp = {};
@@ -129,7 +136,7 @@ function startChallenge() {
   Session.wrongQueue = [];
   Session.cleared = {};
   Session.starred = {};
-  Session.monsterHp = {};
+  Session.kills = 0;
   StepScreen();
 }
 
@@ -230,17 +237,12 @@ function QuizScreen(step) {
       </div>
       <div class="progress"><i style="width:${pct}%"></i></div>
 
-      <div class="battle-strip">
-        <span>⚔️ ${esc(step.name)}</span>
-        <span class="round">第 ${Session.wordIdx + 1} 个</span>
-        <span class="combo" id="combo"></span>
-      </div>
-
-      <div id="arena-holder"></div>
-
       <div class="card stage">
-        <div class="count">把<b>「${esc(word.zh)}」</b>拼出来，打它！</div>
-        <div class="hint-row" style="margin:4px 0 8px">
+        <div class="battle-wrap" id="battle"></div>
+        <div class="count">✍️ ${step.name}${Session.kills ? ` · 已打倒 <b>${Session.kills}</b> 只怪` : ''}</div>
+        <div class="bigemo">${word.emo}</div>
+        <div class="zh">${esc(word.zh)}</div>
+        <div class="hint-row" style="margin:6px 0 0">
           <button class="speak-btn" id="btn-say" style="margin:0">🔊 听发音</button>
         </div>
 
@@ -261,29 +263,21 @@ function QuizScreen(step) {
   const spellBox = card.querySelector('#spell');
   const fb = card.querySelector('#feedback');
   const kb = card.querySelector('#kb');
-  const comboEl = card.querySelector('#combo');
+  /* 顶部像素战场：白天打怪，迷雾试炼是夜晚 */
+  const battle = BATTLE.mount(card.querySelector('#battle'), {
+    theme: Session.challenge ? 'night' : 'day',
+    challenge: !!Session.challenge,
+    hearts: Session.hearts,
+  });
+  Session.battle = battle;
+  battle.spawn(word);
   /* 记录哪些位置是提示给的（用于金色高亮） */
   const hintedIdx = new Set();
 
-  /* 怪物血量 = ceil(词长/2)，最短 2。
-     配「伤害打一半 + 血量≤2 直接斩杀」的规则，实测任何词最长 3 招必死，
-     与一次关卡内每词 3 次检索的节奏吻合 —— 孩子一定看得见怪物倒下。
-     同一单词跨 show/quiz/mix/flash 四阶段续血，按 wordId 记录。 */
-  const MONSTERS = ['👾', '🐙', '🦖', '🐲', '👻', '🦂', '🧟', '🦑'];
-  const monsterMax = Math.max(2, Math.ceil(target.length / 2));
-  if (!Session.monsterHp) Session.monsterHp = {};
-  const prevHp = Session.monsterHp[word.id];
-  /* 上次已被打死的词 -> 满血复活；还有剩血 -> 保持残血续战 */
-  const startHp = prevHp > 0 ? prevHp : monsterMax;
-
-  Battle.mount(card.querySelector('#arena-holder'), {
-    monsterEmo: MONSTERS[Math.floor(Math.random() * MONSTERS.length)],
-    monsterName: esc(word.zh),
-    monsterMax,
-    playerEmo: petStage().emo,
-    playerName: petStage().name,
-    initialHp: startHp,
-  });
+  function refreshCount() {
+    const cnt = card.querySelector('.count');
+    if (cnt) cnt.innerHTML = `✍️ ${step.name}${Session.kills ? ` · 已打倒 <b>${Session.kills}</b> 只怪` : ''}`;
+  }
 
   function renderSpell() {
     spellBox.innerHTML = '';
@@ -314,6 +308,7 @@ function QuizScreen(step) {
     if (Session.answer.length < target.length) {
       Session.answer += ch;
       renderSpell();
+      battle.hit();
     }
   }
 
@@ -321,6 +316,7 @@ function QuizScreen(step) {
     if (Session.locked) return;
     Session.answer = Session.answer.slice(0, -1);
     renderSpell();
+    battle.heal();
   }
 
   function giveHint() {
@@ -337,7 +333,10 @@ function QuizScreen(step) {
       else if (hintCh && hintCh !== '•') { merged += hintCh.toLowerCase(); hintedIdx.add(i); }
       else merged += '';
     }
+    /* 提示直接填进去的每个字母也各砍一刀 */
+    const added = Math.max(0, merged.length - Session.answer.length);
     Session.answer = merged;
+    for (let i = 0; i < added; i++) battle.hit();
 
     if (Session.hintLevel === 1) {
       fb.innerHTML = tip(`首字母是 <b>${target[0].toUpperCase()}</b>，后面的自己想～`);
@@ -375,19 +374,10 @@ function QuizScreen(step) {
 
     if (ok) {
       Audio.correct();
-      /* 连对统计 */
-      Session.combo += 1;
-      Session.maxCombo = Math.max(Session.maxCombo, Session.combo);
-      if (comboEl) comboEl.textContent = Session.combo >= 2 ? `🔥 ${Session.combo} 连对` : '🔥 连对开始！';
-
-      /* 伤害模型：打掉当前血量的一半；血量≤2 时直接斩杀。
-         纯对半衰减打不掉奇数尾巴，斩杀线保证 3 招内见底。 */
-      const cur = Battle.state().monsterHp;
-      const dmg = cur <= 2 ? cur : Math.max(1, Math.round(cur / 2));
-      monsterDown = Battle.hitMonster(dmg, hintFree);
-
-      /* 记录该词剩余血量：同一单词换阶段再来时怪物是残血状态 */
-      Session.monsterHp[word.id] = Battle.state().monsterHp;
+      Session.kills += 1;
+      monsterDown = true;
+      battle.defeat();
+      refreshCount();
       /* 星星：本轮首次拼对该词才发星，重复拼对不再刷 */
       if (!Session.starred[word.id]) {
         Session.starred[word.id] = true;
@@ -402,8 +392,6 @@ function QuizScreen(step) {
       }
     } else {
       Audio.wrong();
-      Session.combo = 0;
-      if (comboEl) comboEl.textContent = '';
       Session.wrongInWord += 1;
 
       /* 怪物反击：扣血量随错次递增 */
@@ -412,11 +400,9 @@ function QuizScreen(step) {
 
       if (Session.challenge) {
         Session.hearts -= 1;
-        const heartsEl = card.querySelector('#hearts');
-        if (heartsEl) heartsEl.textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
-        Battle.hitPlayer(dmg, () => ChallengeLoseScreen());
-      } else {
-        Battle.hitPlayer(dmg, null);
+        card.querySelector('#hearts').textContent = '❤'.repeat(Math.max(0, Session.hearts)) || '🖤';
+        battle.hurt();
+        battle.setHearts(Session.hearts);
       }
     }
 
@@ -477,8 +463,6 @@ function QuizScreen(step) {
   $app.appendChild(card);
 }
 
-function tip_html() {}
-
 function quitConfirm() {
   if (confirm('现在退出？这一关的进度会中断（已记住的词还是会记住）。')) go('home');
 }
@@ -523,7 +507,7 @@ function FinishScreen() {
           <div class="mini"><b>${perfect}</b><span>独立拼对</span></div>
           <div class="mini"><b>${okCnt - perfect}</b><span>提示后拼对</span></div>
           <div class="mini"><b>${wrong}</b><span>写错</span></div>
-          <div class="mini"><b>${Session.maxCombo}</b><span>最高连对</span></div>
+          <div class="mini"><b>${Session.kills || 0}</b><span>击败怪物</span></div>
         </div>
         ${grew.after > grew.before ? `<p class="sub" style="text-align:center;color:var(--green);font-weight:800">🎊 小单词兽长大了！现在是「${petStage().name}」${petStage().emo}</p>` : ''}
         <button class="btn block green" id="btn-again">🔁 再练一轮</button>

@@ -67,6 +67,11 @@ const Audio = (() => {
     correct() { beep(660, 0.1, 'sine', 0.09); setTimeout(() => beep(880, 0.16, 'sine', 0.09), 90); },
     wrong() { beep(220, 0.18, 'triangle', 0.07); },
     hint() { beep(520, 0.08, 'sine', 0.06); },
+    /* 打怪联动音效 */
+    spawn() { beep(140, 0.09, 'square', 0.03); setTimeout(() => beep(200, 0.09, 'square', 0.03), 90); },
+    swing() { beep(170, 0.05, 'square', 0.03); },
+    hurt() { beep(110, 0.22, 'sawtooth', 0.06); },
+    ko() { beep(560, 0.06, 'square', 0.04); setTimeout(() => beep(840, 0.12, 'square', 0.045), 70); },
     win() { [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => beep(f, 0.18, 'sine', 0.09), i * 130)); },
     star() { beep(1180, 0.07, 'square', 0.045); },
     fail() { [392, 330, 262].forEach((f, i) => setTimeout(() => beep(f, 0.2, 'triangle', 0.07), i * 150)); },
